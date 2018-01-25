@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>HW1 - Part B</title>
+		<style>
+			body { margin: 0; }
+			canvas { width: 100%; height: 100% }
+		</style>
+	</head>
+	<body>
+		<div id="container"></div>
+		<script src="js/three.min.js"></script>
+		<script id="vertexShader" type="x-shader/x-vertex">
+			
+		//Three.js gives us these automatically when a perspective camera is bound to the renderer
+		uniform mat4 modelViewMatrix;
+		uniform mat4 projectionMatrix;
+		
+		//Since we are using BufferGeometry, we have defined the attributes that we need manually
+			attribute vec3 position;
+		attribute vec2 texCoords;
+
+		//link variables between the vertex shader and the fragment shader
+		varying vec2 UV;
+
+		void main() {
+
+			//pass our interpolated texCoords to the fragment shader
+			UV = texCoords;
+
+				//of course, we always have to output our vertices in clip coords by multiplying through a projection matrix.
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); 
+			
+			 }
+
+		</script>
+		<script id="fragmentShader" type="x-shader/x-fragment">
+			precision mediump float;
+
+	//special data type used to access texture stored on GPU
+	uniform sampler2D t1;
+	
+	//need to know the resolution of texture so that we can grab neighbors of current pixel
+	uniform float rx;
+	uniform float ry;
+
+	uniform float mixVal;
+
+	//this has to have the same name as in the vertex shader. Here, in the fragment shader, we interpolate across the textureCoordinates
+	varying vec2 UV;
+
+      	void main() {
+
+		//Trying Sharpen filter
+		
+		vec2 texel = vec2( 1.0 / rx, 1.0 / ry );
+
+		const mat3 sharp = mat3( 0, -1, 0, -1, 5, -1, 0, -1, 0 ); // x direction kernel
+		
+		// fetch the 3x3 neighborhood of a fragment
+		vec4 tx0y0 = texture2D( t1, UV + texel * vec2( -1, -1 ) );
+		vec4 tx0y1 = texture2D( t1, UV + texel * vec2( -1,  0 ) );
+		vec4 tx0y2 = texture2D( t1, UV + texel * vec2( -1,  1 ) );
+
+		vec4 tx1y0 = texture2D( t1, UV + texel * vec2(  0, -1 ) );
+		vec4 tx1y1 = texture2D( t1, UV + texel * vec2(  0,  0 ) );
+		vec4 tx1y2 = texture2D( t1, UV + texel * vec2(  0,  1 ) );
+
+		vec4 tx2y0 = texture2D( t1, UV + texel * vec2(  1, -1 ) );
+		vec4 tx2y1 = texture2D( t1, UV + texel * vec2(  1,  0 ) );
+		vec4 tx2y2 = texture2D( t1, UV + texel * vec2(  1,  1 ) );
+
+		vec4 val = sharp[0][0] * tx0y0 + sharp[1][0] * tx1y0 + sharp[2][0] * tx2y0 + 
+				sharp[0][1] * tx0y1 + sharp[1][1] * tx1y1 + sharp[2][1] * tx2y1 + 
+				sharp[0][2] * tx0y2 + sharp[1][2] * tx1y2 + sharp[2][2] * tx2y2;
+
+		vec4 edgePix = vec4(vec3( val ), 1.0);
+		//vec4 edgePix = vec4( vec3( G ), 1.0);
+		vec4 texPix = texture2D(t1, UV);
+
+		//gl_FragColor = vec4( vec3(1.0) - vec3( G ), 1 );
+		gl_FragColor = mix(texPix, edgePix, mixVal); 
+
+	}
+
+		
+		</script>
+		<script>
+			// Set scene variables
+			var container;
+			var camera,scene,renderer;
+			// Get shaders
+			var vs = document.getElementById("vertexShader").textContent;
+			var fs = document.getElementById("fragmentShader").textContent;
+			
+			// Define object variables
+			var mesh;
+			var material;
+			var texture = new THREE.TextureLoader().load("pogchamp2.png")
+			
+			//Mouse settings
+			var mouseX = 0.0;
+			var mouseY = 0.0;
+			
+			init();
+			animate();
+			
+			function init()
+			{
+				// Setup the scene
+				container = document.getElementById("container");
+				camera = new THREE.PerspectiveCamera(60.0, window.innerWidth/window.innerHeight,0.1,50);
+				camera.position.z = 5;
+				scene = new THREE.Scene();
+				
+				// Setup geometry, 2 triangles
+				var geometry = new THREE.BufferGeometry();
+				var vertices = new Float32Array( [
+					-1.0, -1.0, 0.0,
+					+1.0, -1.0, 0.0,
+					+1.0, +1.0, 0.0,
+			 
+					-1.0, -1.0, 0.0,
+					+1.0, +1.0, 0.0,
+					-1.0, +1.0, 0.0,
+
+				] );
+
+				var texCoords = new Float32Array( [
+					0.0, 0.0,
+					1.0, 0.0,
+					1.0, 1.0,
+					
+					0.0, 0.0,
+					1.0, 1.0,
+					0.0, 1.0,
+				] );
+
+					
+				// itemSize = 3 because there are 3 values (components) per vertex
+				geometry.addAttribute( 'position', new THREE.BufferAttribute( vertices, 3 ) );
+				geometry.addAttribute( 'texCoords', new THREE.BufferAttribute( texCoords, 2 ) );
+	
+				// Setup uniforms and material
+				var uniforms = {
+					t1: { type: "t", value: texture  },
+				rx: {type: "f", value: 1024/4},
+				ry: {type: "f", value: 1024/4},
+				mixVal: {type: "f", value: 0.5},
+				};
+	
+	     		material = new THREE.RawShaderMaterial( {
+				uniforms: uniforms,
+						vertexShader: vs,
+						fragmentShader: fs,	
+				} );
+
+
+				mesh = new THREE.Mesh( geometry, material );
+				mesh.translateX(0.0);
+				mesh.material.side = THREE.DoubleSide; //to render both sides of triangle
+				scene.add( mesh );
+
+				
+				
+				// Set renderer
+				renderer = new THREE.WebGLRenderer();
+				renderer.setClearColor( 0x999999 );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+
+				//Resizing the window
+				window.addEventListener( 'resize', onWindowResize, false );
+				document.addEventListener('mousemove', onDocumentMouseMove, false);
+				
+			}
+			
+			function animate()
+			{
+				requestAnimationFrame( animate );
+				render();
+			}
+
+			function render()
+			{
+				var time = performance.now();
+				mesh.material.uniforms.mixVal.value = mouseX;
+				renderer.render( scene, camera );
+			}
+
+			function onDocumentMouseMove(event)
+			{
+				event.preventDefault();
+				mouseX = (event.clientX / window.innerWidth) ;
+				mouseY = -(event.clientY / window.innerHeight) ;
+			}
+
+
+			function onWindowResize( event ) 
+			{
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+			
+		</script>
+	</body>
+</html>
