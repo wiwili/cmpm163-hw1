@@ -9,6 +9,67 @@
 	</head>
 	<body>
 		<script src="js/three.min.js"></script>
+		<script id="litVertexShader" type="x-shader/x-vertex">
+		// Credit to blog
+		// https://csantosbh.wordpress.com/2014/01/09/custom-shaders-with-three-js-uniforms-textures-and-lighting/
+		// Understanding how to use threejs point lights with shadermaterials
+			varying vec2 vUv;
+			varying vec3 vecPos;
+			varying vec3 vecNormal;
+			 
+			void main() {
+			  vUv = uv;
+			  // Since the light is in camera coordinates,
+			  // I'll need the vertex position in camera coords too
+			  vecPos = (modelViewMatrix * vec4(position, 1.0)).xyz;
+			  // That's NOT exacly how you should transform your
+			  // normals but this will work fine, since my model
+			  // matrix is pretty basic
+			  vecNormal = (modelViewMatrix * vec4(normal, 0.0)).xyz;
+			  gl_Position = projectionMatrix *
+							vec4(vecPos, 1.0);
+			}
+		</script>
+		<script id="litFragmentShader" type="x-shader/x-fragment">
+		precision highp float;
+		 
+		varying vec2 vUv;
+		varying vec3 vecPos;
+		varying vec3 vecNormal;
+		 
+		uniform float lightIntensity;
+		uniform sampler2D textureSampler;
+		 
+		struct PointLight {
+		  vec3 color;
+		  vec3 position; // light position, in camera coordinates
+		  float distance; // used for attenuation purposes. Since
+						  // we're writing our own shader, it can
+						  // really be anything we want (as long as
+						  // we assign it to our light in its
+						  // "distance" field
+		};
+		 
+		uniform PointLight pointLights[NUM_POINT_LIGHTS];
+		 
+		void main(void) {
+		  // Pretty basic lambertian lighting...
+		  vec4 addedLights = vec4(0.0,
+								  0.0,
+								  0.0,
+								  1.0);
+		  for(int l = 0; l < NUM_POINT_LIGHTS; l++) {
+			  vec3 lightDirection = normalize(vecPos
+									- pointLights[l].position);
+			  addedLights.rgb += clamp(dot(-lightDirection,
+									   vecNormal), 0.0, 1.0)
+								 * pointLights[l].color
+								 * lightIntensity;
+		  }
+		  gl_FragColor = texture2D(textureSampler, vUv)
+						 * addedLights;
+		}
+		</script>
 		<script id="cusVertexShader" type="x-shader/x-vertex">
 
 			precision mediump float;
@@ -64,10 +125,57 @@
 			}
 
 		</script>
+		
+<script id="threeVertexShader" type="x-shader/x-vertex">
+precision highp float;
+precision highp int;
+
+
+void main() {
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+}
+		</script>
+		<script id="threeFragmentShader" type="x-shader/x-fragment">
+	precision highp float;
+	precision highp int;
+
+	uniform float width;
+	uniform float resolution;
+	uniform float speed;
+	uniform float time;
+
+	uniform vec3 color;
+
+	void main() {
+
+		vec3 outColor = vec3( 0.0 );
+		float m = mod( ( gl_FragCoord.y + ( time * speed ) ) * resolution , width );
+
+		if( m < 2.0 ) {
+			outColor = color;
+		} else if( m < 2.5 ) {
+			outColor = color * 0.5;
+		}
+		
+		gl_FragColor = vec4( outColor, 1.0 );
+
+	}
+		</script>
 		<script>
 		// Setup the scene
+			// Lit Shader vs/fs
+	      	var pvs = document.getElementById( 'litVertexShader' ).textContent;
+			var pfs = document.getElementById( 'litFragmentShader' ).textContent;
+			
+			// Vector Displacement vs/fs
 	      	var vs = document.getElementById( 'cusVertexShader' ).textContent;
 			var fs = document.getElementById( 'cusFragmentShader' ).textContent;
+
+			// Unnamed third shader
+			var tvs = document.getElementById( 'threeVertexShader' ).textContent;
+			var tfs = document.getElementById( 'threeFragmentShader' ).textContent;
 
 			var scene = new THREE.Scene();
 			var camera = new THREE.PerspectiveCamera( 90, window.innerWidth/window.innerHeight, 0.1, 1000 );
@@ -84,9 +192,9 @@
 			
 		// Define lights
 			var lights = [];
-			lights[ 0 ] = new THREE.PointLight( 0xff0000, 1, 0 );
+			lights[ 0 ] = new THREE.PointLight( 0x004f00, 1, 0 );
 			lights[ 1 ] = new THREE.PointLight( 0x0000ff, 1, 0 );
-			lights[ 2 ] = new THREE.PointLight( 0x00ff00, 1, 0 );
+			lights[ 2 ] = new THREE.PointLight( 0xabcdef, 1, 0 );
 
 			// set lights position, not needed since I change position in animate?
 			lights[ 0 ].position.set( 0, 20, 15 );
@@ -104,21 +212,35 @@
 			scene.add( lights[ 2 ] );
 
 		// Define geometry and add it to the scene
-			// Object 1 Phong Dingo by Google Poly
+			// Object 1 Lambertian Dingo
 			var loader = new THREE.JSONLoader();
 			loader.load("dingo.json", processDingo);
 			// Object 2 Textured Object using StandardMeshMaterial Shader?
-			var loader2 = new THREE.TextureLoader();
-			loader2.load("PogChamp.png",processPogChamp);
+			//var loader2 = new THREE.TextureLoader();
+			//loader2.load("PogChamp.png",processPogChamp);
+			var colors = new THREE.Vector3(4,4,4);
+			var geometry2 = new THREE.ConeGeometry( 3, 5, 32 );
+			var material2 = new THREE.ShaderMaterial({
+				uniforms:{		
+					width:{type:"f",value:4},
+					resolution:{type:"f",value:0.5},
+					speed:{type:"f",value:5},
+					time:{type:"f",value:0.0},
+					color:{type:"v3",value:colors},
+					},
+				vertexShader:tvs,
+				fragmentShader:tfs
+				});
+			pogchamp = new THREE.Mesh(geometry2,material2);
+			scene.add(pogchamp);
 			//object2.receiveShadow = true;
-			// Object 3 custom shader?
+			// Object 3 Vector Displacement
 			var geometry3 = new THREE.TorusKnotGeometry(2,0.3,40,8);
-			var material3 = new THREE.MeshPhongMaterial({color:0xffffd3});
+			//var material3 = new THREE.MeshPhongMaterial({color:0xffffd3});
 			var materialCus = new THREE.RawShaderMaterial({
-				uniforms:{
-					time:{
-						type:"f",value:0.0
-						}},
+				uniforms:{		
+					time:{type:"f",value:0.0},
+					},
 				vertexShader:vs,
 				fragmentShader:fs
 				});
@@ -149,17 +271,18 @@
 				
 				//console.log(60*Math.sin(time*0.0005));
 				// move the dingo, throws an error but works fine?
-				dingo.rotation.x = time * 0.0003;
-				dingo.rotation.y = time * 0.0002;
+				dingo.rotation.x = time * 0.003;
+				dingo.rotation.y = time * 0.002;
 				// rotate object 2
 				pogchamp.rotation.y = time * 0.0002;
-				pogchamp.rotation.x = time * 0.002;
+				pogchamp.rotation.z = time * 0.002;
 				renderer.render(scene, camera);
 				// move object 3
 			//	object3.position.x = 10 + (5*Math.sin(time*0.0004));
 			//	object3.position.y = (5*Math.sin(time*0.003));
 				object3.rotation.z = time* 0.002
 				materialCus.uniforms.time.value = time*0.005;
+				material2.uniforms.time.value = time*0.05;
 			};
 
 			animate();
@@ -167,22 +290,43 @@
 		// onLoad callback for processing blender objects
 			function processDingo(geometry,materials)
 			{
+				var pogchamp = new THREE.TextureLoader().load("dingo.png");
 				var dingoGeometry = geometry;
-				var dingoMaterial = new THREE.MeshPhongMaterial({color:0x7777FF});
+				var dingoMaterial = new THREE.ShaderMaterial(
+					{
+						uniforms: THREE.UniformsUtils.merge([
+								THREE.UniformsLib['lights'],
+								{
+									lightIntensity: {type: 'f', value: 1.0},
+									textureSampler: {type: 't', value: null}
+								}
+							]),
+						vertexShader:pvs,
+						fragmentShader:pfs,
+						lights:true
+						
+					});
+				dingoMaterial.uniforms.textureSampler.value = pogchamp;
+
+				//var dingoMaterial = new THREE.MeshPhongMaterial({color:0x7777FF});
 				dingo = new THREE.Mesh(dingoGeometry,dingoMaterial);
 				//dingo.position.x = 20;
 				dingo.translateX(-10);
 				scene.add(dingo);
 			}
 			
+			/*
 		// onLoad callback for PogChamp
 		function processPogChamp(texture)
 		{
-			var object2geometry = new THREE.BoxGeometry(3,3,3);
-			var object2material = new THREE.MeshStandardMaterial({map:texture});
+			var object2geometry = new THREE.IcosahedronGeometry( 20, 4 );
+			var object2material = new THREE.ShaderMaterial({
+				vertexShader:tvs,
+				fragmentShader:tfs,
+				});
 			pogchamp = new THREE.Mesh(object2geometry,object2material); 
 			scene.add(pogchamp);
-		}
+		}*/
 		</script>
 	</body>
 </html>
